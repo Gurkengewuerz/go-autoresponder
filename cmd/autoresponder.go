@@ -42,7 +42,7 @@ import (
     "log/syslog"
 )
 
-const VERSION = "1.0.0001"
+const VERSION = "1.0.0002"
 const DEBUG = true
 
 const RESPONSE_DIR = "/var/spool/autoresponder/responses"
@@ -284,7 +284,7 @@ func forwardEmailAndAutoresponse(recipient, sender, saslUser, clientIp string, r
     sendMail(sender, recipient, func(sink io.WriteCloser) {
         defer sink.Close()
 
-        io.Copy(sink, os.Stdout)
+        io.Copy(sink, os.Stdin)
     })
 
     return nil
