@@ -34,6 +34,7 @@ import (
     "os"
     "os/exec"
     "io"
+    "bufio"
     "path/filepath"
     "strings"
     "log/syslog"
@@ -108,8 +109,8 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
 
         if ! fileExists(senderResponsePath) {
             syslg.Info(fmt.Sprintf("Autoresponse disabled for address: %v by SASL authenticated user: %v from: %v",
-                sender,saslUser, clientIp))
-            //!!! Send mail via sendmail
+                sender, saslUser, clientIp))
+            // Send mail via sendmail
             sendMail(recipient, sender, func(sink io.WriteCloser) {
                 defer sink.Close()
                 sink.Write([]byte(fmt.Sprintf("From: %v\nTo: %v\nSubject: Autoresponder\n\n"+
@@ -117,9 +118,63 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
                     recipient, sender, sender, saslUser, clientIp)))
             })
         } else {
+            return fmt.Errorf("Autoresponse could not be disabled for address %v", sender)
         }
+    } else {
+        // Cat stdin to response file for the user, removing unneeded headers in the process
+        // Only From:, To: and Subject: are needed.
+        // To: ... is replaced with To: THIS GETS REPLACED
+        // Subject: ... is replaced with Subject: Autoresponder
+        fl, err := os.OpenFile(senderResponsePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
+        if err != nil {
+            return fmt.Errorf("Autoresponse could not be enabled for address %v: %v", sender, err)
+        }
+        fl.Chmod(0660)
+        reader := bufio.NewReader(os.Stdin)
+        writer := bufio.NewWriter(fl)
+        defer func() {
+            writer.Flush()
+            fl.Close()
+        }()
+        state := 0
+        for {
+            line, err := reader.ReadString('\n')
+            if err != nil {
+                if err == io.EOF {
+                    break
+                }
+                return err
+            }
+            //fmt.Printf("Read line: '%v'\n", line)
+
+            switch state {
+            // state 0 (mail header)
+            case 0:
+                if line == "\n" || line == "\r\n" || line == "\r" {
+                    _, err = writer.WriteString(line)
+                    state = 1
+                    continue
+                }
+
+                switch true {
+                case strings.Index(strings.ToLower(line), "from: ") == 0:
+                    _, err = writer.WriteString(line)
+                case strings.Index(strings.ToLower(line), "to: ") == 0:
+                    _, err = writer.WriteString("To: THIS GETS REPLACED\n")
+                case strings.Index(strings.ToLower(line), "subject: ") == 0:
+                    _, err = writer.WriteString("Subject: Autoresponder\n")
+                }
+
+            case 1:
+                _, err = writer.WriteString(line)
+            }
+
+            if err != nil {
+                return err
+            }
+        }
+        //!!!
     }
-    //!!!
 
     return nil
 }
@@ -156,7 +211,14 @@ func enableExAutoresponse(email string) error {
 func deleteAutoresponse(email string, nostdout bool) error {
     deleteResponsePath := filepath.Join(RESPONSE_DIR, email)
     if fileExists(deleteResponsePath) {
-        os.Remove(deleteResponsePath)
+        err := os.Remove(deleteResponsePath)
+        if err != nil {
+            msg := fmt.Sprintf("%v cannot be deleted: %v", deleteResponsePath, err)
+            if ! nostdout {
+                fmt.Println(msg)
+            }
+            return fmt.Errorf("%v", msg)
+        }
     } else {
         msg := fmt.Sprintf("%v does not exist, thus it cannot be deleted!", deleteResponsePath)
         if ! nostdout {
@@ -170,7 +232,8 @@ func deleteAutoresponse(email string, nostdout bool) error {
 
 func main() {
     // Connect to syslog
-    syslg, err := syslog.New(syslog.LOG_MAIL, "autoresponder")
+    var err error
+    syslg, err = syslog.New(syslog.LOG_MAIL, "autoresponder")
     if err != nil {
         fmt.Println(err.Error())
         os.Exit(1)
