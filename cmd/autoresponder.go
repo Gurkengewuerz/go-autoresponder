@@ -336,6 +336,7 @@ func enableAutoresponse(email string) error {
         // Write template to file
         writer.WriteString(fmt.Sprintf(`From: %v
 To: THIS GETS REPLACED
+Content-Type: text/plain; charset=UTF-8
 Subject: Autoresponder
 
 mail body`, email))
