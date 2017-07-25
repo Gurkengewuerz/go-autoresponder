@@ -63,6 +63,13 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
     return nil
 }
 
+// Forward email using supplied arguments and stdin (email body)
+func forwardEmailAndAutoresponse(recipient, sender, saslUser, clientIp string, responseRate uint) error {
+    //!!!
+
+    return nil
+}
+
 func main() {
     // Connect to syslog
     syslg, err := syslog.New(syslog.LOG_MAIL, "autoresponder")
@@ -80,10 +87,11 @@ func main() {
     disableAutoResponsePtr := flag.String("d", "", "Disable autoresponse")
     enableExAutoResponsePtr := flag.String("E", "", "Enable existing autoresponse")
     deleteAutoResponsePtr := flag.String("D", "", "Delete autoresponse")
-    instructions := flag.Bool("i", false, "Setup instructions")
+    instructionsPtr := flag.Bool("i", false, "Setup instructions")
+    responseRatePtr := flag.Uint("t", 86400, "Response rate in seconds (0 - send each time)")
     flag.Parse()
 
-    DebugSyslogFmt(syslg, "Flags:   Recipient: %v, Sender: %v, SASL authenticated username: %v, Client IP: %v, Enable autoresponse: %v, Disable autoresponse: %v, Enable existing autoresponse: %v, Delete autoresponse: %v, Setup instructions: %v",
+    DebugSyslogFmt(syslg, "Flags:   Recipient: %v, Sender: %v, SASL authenticated username: %v, Client IP: %v, Enable autoresponse: %v, Disable autoresponse: %v, Enable existing autoresponse: %v, Delete autoresponse: %v, Setup instructions: %v, Response rate: %v",
         *recipientPtr,
         *senderPtr,
         *saslUserPtr,
@@ -92,10 +100,11 @@ func main() {
         *disableAutoResponsePtr,
         *enableExAutoResponsePtr,
         *deleteAutoResponsePtr,
-        *instructions)
+        *instructionsPtr,
+        *responseRatePtr)
 
     // If setup instructions are requested, just print them to stdout and exit
-    if *instructions {
+    if *instructionsPtr {
         fmt.Print(`
  How to make it work on a server with postfix installed:
  =======================================================
@@ -142,9 +151,12 @@ func main() {
     }
     DebugSyslogFmt(syslg, "mode=%v, sendResponse=%v, authenticated=%v\n", mode, sendResponse, authenticated)
 
+    // Little more validation of recipient and sender
+    // Remove path ('/') from both recipient and sender
+    *recipientPtr = strings.Replace(*recipientPtr, "/", "", -1)
+    *senderPtr = strings.Replace(*senderPtr, "/", "", -1)
     recipientParts := strings.Split(*recipientPtr, "@")
     senderParts := strings.Split(*senderPtr, "@")
-    // Little more validation of recipient and sender
     if len(recipientParts) < 2 {
         syslg.Err(fmt.Sprintf("Invalid recipient %v", *recipientPtr))
         os.Exit(1)
@@ -156,13 +168,52 @@ func main() {
 
     // And now descision making
     DebugSyslogFmt(syslg, "recipientUser=%v =? senderUser=%v\n", recipientParts[0], senderParts[0] + "+autoresponse")
-    if mode == 0 && authenticated && recipientParts[0] == senderParts[0] + "+autoresponse" {
+    switch true {
+    //   - (un)set autoresponse via email
+    case mode == 0 && recipientParts[0] == senderParts[0] + "+autoresponse":
         syslg.Info(fmt.Sprintf("Requested autoresponse (un)set via email for email %v", *senderPtr))
+
+        // Do not allow unauthenticated changes
+        if ! authenticated {
+            syslg.Warning(fmt.Sprintf("Unauthenticated attempt to set autoresponse message for %v from %v !",
+                *senderPtr, *clientIpPtr))
+            os.Exit(0)
+        }
+
         err := setAutoresponseViaEmail(*recipientPtr, *senderPtr, *saslUserPtr, *clientIpPtr)
+        //!!!
         if err != nil {
             syslg.Err(err.Error())
             os.Exit(1)
         }
+
+    //  - forward mail and either send response if set and enough time has passed
+    case mode == 0 && strings.Index(*recipientPtr, "+autoresponse") == -1:
+        syslg.Info(fmt.Sprintf("Requested email forward from %v, to %v", *senderPtr, *recipientPtr))
+
+        err := forwardEmailAndAutoresponse(*recipientPtr, *senderPtr, *saslUserPtr, *clientIpPtr, *responseRatePtr)
+        //!!!
+        if err != nil {
+            syslg.Err(err.Error())
+            os.Exit(1)
+        }
+        //!!!
+
+    //  - set autoresponse via cli
+    case mode == 1 && *enableAutoResponsePtr != "":
+        //!!!
+
+    //  - disable autoresponse via cli
+    case mode == 1 && *disableAutoResponsePtr != "":
+        //!!!
+
+    //  - enable existing autoresponse via cli
+    case mode == 1 && *enableExAutoResponsePtr != "":
+        //!!!
+
+    //  - delete existing autoresponse via cli
+    case mode == 1 && *deleteAutoResponsePtr != "":
+        //!!!
     }
     //!!!
 }
