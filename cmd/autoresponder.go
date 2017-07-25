@@ -32,6 +32,9 @@ import (
     "fmt"
     "flag"
     "os"
+    "os/exec"
+    "io"
+    "path/filepath"
     "strings"
     "log/syslog"
 )
@@ -44,20 +47,78 @@ const RATE_LOG_DIR = "/var/spool/autoresponder/log"
 const SENDMAIL_BIN = "/usr/sbin/sendmail"
 
 
+var syslg *syslog.Writer = nil
+
+
 // Function using fmt.Printf for debug printing, but only if DEBUG is true
 func DebugFmtPrintf(format string, v ...interface{})  {
         if DEBUG {
                 fmt.Printf("DEBUG: " + format, v...)
         }
 }
-func DebugSyslogFmt(syslg *syslog.Writer, format string, v ...interface{})  {
+func DebugSyslogFmt(format string, v ...interface{})  {
+        if syslg == nil {
+            return
+        }
         if DEBUG {
                 syslg.Debug(fmt.Sprintf("DEBUG: " + format, v...))
         }
 }
 
+// Return true if file exists and is regular file
+func fileExists(name string) bool {
+    st, err := os.Lstat(name)
+    if err != nil || (st.Mode() & os.ModeType) != os.FileMode(0) {
+        return false
+    }
+
+    return true
+}
+
+// Send mail from address to address with given mail content being passed as function pointer
+func sendMail(from, to string, populateStdin func(io.WriteCloser)) error {
+    cmd := exec.Command(SENDMAIL_BIN, "-i", "-f", from, to)
+    stdin, err := cmd.StdinPipe()
+    if err != nil {
+        return err
+    }
+    err = cmd.Start()
+    if err != nil {
+        return err
+    }
+    go func() {
+        populateStdin(stdin)
+    }()
+    err = cmd.Wait()
+    if err != nil {
+        return err
+    }
+
+    return nil
+}
+
 // Set autoresponse using supplied arguments and stdin (email body)
 func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error {
+    senderResponsePath := filepath.Join(RESPONSE_DIR, sender)
+    if fileExists(senderResponsePath) {
+        err := deleteAutoresponse(sender, true)
+        if err != nil {
+            return err
+        }
+
+        if ! fileExists(senderResponsePath) {
+            syslg.Info(fmt.Sprintf("Autoresponse disabled for address: %v by SASL authenticated user: %v from: %v",
+                sender,saslUser, clientIp))
+            //!!! Send mail via sendmail
+            sendMail(recipient, sender, func(sink io.WriteCloser) {
+                defer sink.Close()
+                sink.Write([]byte(fmt.Sprintf("From: %v\nTo: %v\nSubject: Autoresponder\n\n"+
+                    "Autoresponse disabled for %v by SASL authenticated user: %v from: %v\n",
+                    recipient, sender, sender, saslUser, clientIp)))
+            })
+        } else {
+        }
+    }
     //!!!
 
     return nil
@@ -70,10 +131,48 @@ func forwardEmailAndAutoresponse(recipient, sender, saslUser, clientIp string, r
     return nil
 }
 
+// Enable autoresponse for email
+func enableAutoresponse(email string) error {
+    //!!!
+
+    return nil
+}
+
+// Disable autoresponse for email
+func disableAutoresponse(email string) error {
+    //!!!
+
+    return nil
+}
+
+// Enable existing autoresponse for email
+func enableExAutoresponse(email string) error {
+    //!!!
+
+    return nil
+}
+
+// Delete autoresponse for email
+func deleteAutoresponse(email string, nostdout bool) error {
+    deleteResponsePath := filepath.Join(RESPONSE_DIR, email)
+    if fileExists(deleteResponsePath) {
+        os.Remove(deleteResponsePath)
+    } else {
+        msg := fmt.Sprintf("%v does not exist, thus it cannot be deleted!", deleteResponsePath)
+        if ! nostdout {
+            fmt.Println(msg)
+        }
+        return fmt.Errorf("%v", msg)
+    }
+
+    return nil
+}
+
 func main() {
     // Connect to syslog
     syslg, err := syslog.New(syslog.LOG_MAIL, "autoresponder")
     if err != nil {
+        fmt.Println(err.Error())
         os.Exit(1)
     }
     defer syslg.Close()
@@ -91,7 +190,7 @@ func main() {
     responseRatePtr := flag.Uint("t", 86400, "Response rate in seconds (0 - send each time)")
     flag.Parse()
 
-    DebugSyslogFmt(syslg, "Flags:   Recipient: %v, Sender: %v, SASL authenticated username: %v, Client IP: %v, Enable autoresponse: %v, Disable autoresponse: %v, Enable existing autoresponse: %v, Delete autoresponse: %v, Setup instructions: %v, Response rate: %v",
+    DebugSyslogFmt("Flags:   Recipient: %v, Sender: %v, SASL authenticated username: %v, Client IP: %v, Enable autoresponse: %v, Disable autoresponse: %v, Enable existing autoresponse: %v, Delete autoresponse: %v, Setup instructions: %v, Response rate: %v",
         *recipientPtr,
         *senderPtr,
         *saslUserPtr,
@@ -149,7 +248,7 @@ func main() {
     if *enableAutoResponsePtr != "" || *disableAutoResponsePtr != "" || *enableExAutoResponsePtr != "" || *deleteAutoResponsePtr != "" {
         mode = 1
     }
-    DebugSyslogFmt(syslg, "mode=%v, sendResponse=%v, authenticated=%v\n", mode, sendResponse, authenticated)
+    DebugSyslogFmt("mode=%v, sendResponse=%v, authenticated=%v\n", mode, sendResponse, authenticated)
 
     // Little more validation of recipient and sender
     // Remove path ('/') from both recipient and sender
@@ -167,7 +266,7 @@ func main() {
     }
 
     // And now descision making
-    DebugSyslogFmt(syslg, "recipientUser=%v =? senderUser=%v\n", recipientParts[0], senderParts[0] + "+autoresponse")
+    DebugSyslogFmt("recipientUser=%v =? senderUser=%v\n", recipientParts[0], senderParts[0] + "+autoresponse")
     switch true {
     //   - (un)set autoresponse via email
     case mode == 0 && recipientParts[0] == senderParts[0] + "+autoresponse":
@@ -197,23 +296,50 @@ func main() {
             syslg.Err(err.Error())
             os.Exit(1)
         }
-        //!!!
 
     //  - set autoresponse via cli
     case mode == 1 && *enableAutoResponsePtr != "":
+        syslg.Info(fmt.Sprintf("Requested enable autoresponse for %v", *enableAutoResponsePtr))
+
+        err := enableAutoresponse(*enableAutoResponsePtr)
         //!!!
+        if err != nil {
+            syslg.Err(err.Error())
+            os.Exit(1)
+        }
 
     //  - disable autoresponse via cli
     case mode == 1 && *disableAutoResponsePtr != "":
+        syslg.Info(fmt.Sprintf("Requested disable autoresponse for %v", *disableAutoResponsePtr))
+
+        err := disableAutoresponse(*disableAutoResponsePtr)
         //!!!
+        if err != nil {
+            syslg.Err(err.Error())
+            os.Exit(1)
+        }
 
     //  - enable existing autoresponse via cli
     case mode == 1 && *enableExAutoResponsePtr != "":
+        syslg.Info(fmt.Sprintf("Requested enable existing autoresponse for %v", *enableExAutoResponsePtr))
+
+        err := enableExAutoresponse(*enableExAutoResponsePtr)
         //!!!
+        if err != nil {
+            syslg.Err(err.Error())
+            os.Exit(1)
+        }
 
     //  - delete existing autoresponse via cli
     case mode == 1 && *deleteAutoResponsePtr != "":
+        syslg.Info(fmt.Sprintf("Requested delete autoresponse for %v", *deleteAutoResponsePtr))
+
+        err := deleteAutoresponse(*deleteAutoResponsePtr, false)
         //!!!
+        if err != nil {
+            syslg.Err(err.Error())
+            os.Exit(1)
+        }
     }
     //!!!
 }
