@@ -196,6 +196,33 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
 
 // Forward email using supplied arguments and stdin (email body)
 func forwardEmailAndAutoresponse(recipient, sender, saslUser, clientIp string, responseRate uint) error {
+    recipientResponsePath := filepath.Join(RESPONSE_DIR, recipient)
+    recipientSenderRateLog := filepath.Join(RATE_LOG_DIR, recipient, sender)
+
+    if fileExists(recipientResponsePath) {
+        // Check rate log
+        sendResponse := true
+        if fileExists(recipientSenderRateLog) {
+            curTime := time.Now()
+            st, err := os.Stat(recipientSenderRateLog)
+            if err != nil {
+                return err
+            }
+            modTime := st.ModTime()
+
+            if int64(curTime.Sub(modTime)) / int64(time.Second) < int64(responseRate) {
+                sendResponse = false
+                syslg.Info(fmt.Sprintf("Autoresponse has already been sent from %v to %v within last %v seconds",
+                    recipient, sender, responseRate))
+            }
+        }
+
+        // If sendResponse is true, then send response and touch rate log file
+        if sendResponse {
+            //fmt.Println("Sending response")
+            //!!!
+        }
+    }
     //!!!
 
     return nil
@@ -453,18 +480,14 @@ func main() {
     //	mode=0 represents the actions that can not be executed from the command line
     //	mode=1 represents the actions that can be executed from the command line
     mode := 0
-    sendResponse := false
     authenticated := false
-    if *recipientPtr != "" && *senderPtr != "" {
-        sendResponse = true
-    }
     if *saslUserPtr != "" {
         authenticated = true
     }
     if *enableAutoResponsePtr != "" || *disableAutoResponsePtr != "" || *enableExAutoResponsePtr != "" || *deleteAutoResponsePtr != "" {
         mode = 1
     }
-    DebugSyslogFmt("mode=%v, sendResponse=%v, authenticated=%v\n", mode, sendResponse, authenticated)
+    DebugSyslogFmt("mode=%v, authenticated=%v\n", mode, authenticated)
 
     // Little more validation of recipient and sender
     // Remove path ('/') from both recipient and sender
