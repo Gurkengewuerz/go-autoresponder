@@ -4,16 +4,16 @@ package main
 //
 // How to make it work on a server with postfix installed:
 // =======================================================
-// Create autoresponse username:
-// useradd -d /var/spool/autoresponse -s `which nologin` autoresponse
+// Create autoresponder username:
+// useradd -d /var/spool/autoresponder -s $(which nologin) autoresponder
 //
-// Copy autoresponse binary to /usr/local/sbin
-// cp autoresponse /usr/local/sbin/
+// Copy autoresponder binary to /usr/local/sbin
+// cp autoresponder /usr/local/sbin/
 //
 // RESPONSE_DIR, RATE_LOG_DIR must be created:
-// mkdir -p /var/spool/autoresponse/log /var/spool/autoresponse/responses
-// chown -R autoresponse:autoresponse /var/spool/autoresponse
-// chmod -R 0770 /var/spool/autoresponse
+// mkdir -p /var/spool/autoresponder/log /var/spool/autoresponder/responses
+// chown -R autoresponder:autoresponder /var/spool/autoresponder
+// chmod -R 0770 /var/spool/autoresponder
 //
 // Edit /etc/postfix/master.cf:
 // Replace line:
@@ -23,7 +23,7 @@ package main
 //   -o content_filter=autoresponder:dummy
 // At the end of file append the following two lines:
 // autoresponder unix - n n - - pipe
-//   flags=Fq user=autoresponse argv=/usr/local/sbin/autoresponse -s ${sender} -r ${recipient} -S ${sasl_username} -C ${client_address}
+//   flags=Fq user=autoresponder argv=/usr/local/sbin/autoresponder -s ${sender} -r ${recipient} -S ${sasl_username} -C ${client_address}
 //
 //
 // Written by Uros Juvan <asmpro@gmail.com> 2017
@@ -39,8 +39,8 @@ import (
 const VERSION = "1.0.0001"
 const DEBUG = true
 
-const RESPONSE_DIR = "/var/spool/autoresponse/responses"
-const RATE_LOG_DIR = "/var/spool/autoresponse/log"
+const RESPONSE_DIR = "/var/spool/autoresponder/responses"
+const RATE_LOG_DIR = "/var/spool/autoresponder/log"
 const SENDMAIL_BIN = "/usr/sbin/sendmail"
 
 
@@ -99,16 +99,16 @@ func main() {
         fmt.Print(`
  How to make it work on a server with postfix installed:
  =======================================================
- Create autoresponse username:
- useradd -d /var/spool/autoresponse -s $(which nologin) autoresponse
+ Create autoresponder username:
+ useradd -d /var/spool/autoresponder -s $(which nologin) autoresponder
 
- Copy autoresponse binary to /usr/local/sbin
- cp autoresponse /usr/local/sbin/
+ Copy autoresponder binary to /usr/local/sbin
+ cp autoresponder /usr/local/sbin/
 
  RESPONSE_DIR, RATE_LOG_DIR must be created:
- mkdir -p /var/spool/autoresponse/log /var/spool/autoresponse/responses
- chown -R autoresponse:autoresponse /var/spool/autoresponse
- chmod -R 0770 /var/spool/autoresponse
+ mkdir -p /var/spool/autoresponder/log /var/spool/autoresponder/responses
+ chown -R autoresponder:autoresponder /var/spool/autoresponder
+ chmod -R 0770 /var/spool/autoresponder
 
  Edit /etc/postfix/master.cf:
  Replace line:
@@ -118,7 +118,7 @@ func main() {
    -o content_filter=autoresponder:dummy
  At the end of file append the following two lines:
  autoresponder unix - n n - - pipe
-   flags=Fq user=autoresponse argv=/usr/local/sbin/autoresponse -s ${sender} -r ${recipient} -S ${sasl_username} -C ${client_address}
+   flags=Fq user=autoresponder argv=/usr/local/sbin/autoresponder -s ${sender} -r ${recipient} -S ${sasl_username} -C ${client_address}
 `)
         os.Exit(0)
     }
