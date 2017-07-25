@@ -31,9 +31,11 @@ package main
 import (
     "fmt"
     "flag"
+    "time"
     "os"
     "os/exec"
     "io"
+    "io/ioutil"
     "bufio"
     "path/filepath"
     "strings"
@@ -108,7 +110,7 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
         }
 
         if ! fileExists(senderResponsePath) {
-            syslg.Info(fmt.Sprintf("Autoresponse disabled for address: %v by SASL authenticated user: %v from: %v",
+            syslg.Info(fmt.Sprintf("Autoresponse disabled for address %v by SASL authenticated user: %v from: %v",
                 sender, saslUser, clientIp))
             // Send mail via sendmail
             sendMail(recipient, sender, func(sink io.WriteCloser) {
@@ -173,7 +175,20 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
                 return err
             }
         }
-        //!!!
+
+        if fileExists(senderResponsePath) {
+            syslg.Info(fmt.Sprintf("Autoresponse enabled for address %v by SASL authenticated user: %v from: %v",
+                sender, saslUser, clientIp))
+            // Send mail via sendmail
+            sendMail(recipient, sender, func(sink io.WriteCloser) {
+                defer sink.Close()
+                sink.Write([]byte(fmt.Sprintf("From: %v\nTo: %v\nSubject: Autoresponder\n\n"+
+                    "Autoresponse enabled for %v by SASL authenticated user: %v from: %v\n",
+                    recipient, sender, sender, saslUser, clientIp)))
+            })
+        } else {
+            return fmt.Errorf("Autoresponse could not be enabled for address %v", sender)
+        }
     }
 
     return nil
@@ -186,23 +201,156 @@ func forwardEmailAndAutoresponse(recipient, sender, saslUser, clientIp string, r
     return nil
 }
 
+// Get text editor
+func getTextEditor() string {
+    editor := os.Getenv("EDITOR")
+    if editor == "" {
+        editor = "vi"
+    }
+
+    return editor
+}
+
+// Get file modification time
+func getFileModTime(name string) (t time.Time, err error) {
+    st, err := os.Stat(name)
+    if err != nil {
+        return t, err
+    }
+    t = st.ModTime()
+
+    return
+}
+
 // Enable autoresponse for email
 func enableAutoresponse(email string) error {
-    //!!!
+    emailResponsePath := filepath.Join(RESPONSE_DIR, email)
+    editFilePath := emailResponsePath
+
+    // If editFilePath does not exist, also try to enable previosly disabled autoresponse
+    if ! fileExists(editFilePath) {
+        enableExAutoresponse(email, true)
+    }
+
+    // If file does not exist yet, create template file as tmp file
+    var oldModTime, newModTime time.Time
+    if ! fileExists(editFilePath) {
+        editFile, err := ioutil.TempFile("", "autoresponder")
+        if err != nil {
+            return err
+        }
+        editFilePath = editFile.Name()
+        defer os.Remove(editFilePath)
+
+        writer := bufio.NewWriter(editFile)
+
+        // Write template to file
+        writer.WriteString(fmt.Sprintf(`From: %v
+To: THIS GETS REPLACED
+Subject: Autoresponder
+
+mail body`, email))
+
+        writer.Flush()
+        editFile.Close()
+    }
+    oldModTime, err := getFileModTime(editFilePath)
+    if err != nil {
+        return err
+    }
+
+    // Invoke either EDITOR environment or vi command
+    cmd := exec.Command(getTextEditor(), editFilePath)
+    cmd.Stdin = os.Stdin
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    err = cmd.Run()
+    if err != nil {
+        return err
+    }
+
+    newModTime, err = getFileModTime(editFilePath)
+    if err != nil {
+        return err
+    }
+
+    if oldModTime != newModTime {
+        if emailResponsePath != editFilePath {
+            // Open editFilePath for reading and emailResponsePath for writing and Copy content over
+            tmpFl, err := os.Open(editFilePath)
+            if err != nil {
+                return err
+            }
+            defer tmpFl.Close()
+
+            resFl, err := os.OpenFile(emailResponsePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
+            if err != nil {
+                return err
+            }
+            resFl.Chmod(0660)
+            defer resFl.Close()
+
+            _, err = io.Copy(resFl, tmpFl)
+            if err != nil {
+                return err
+            }
+        }
+        msg := fmt.Sprintf("Edited %v", emailResponsePath)
+        syslg.Info(msg)
+        fmt.Println(msg)
+    } else {
+        msg := fmt.Sprintf("Editing %v aborted!", emailResponsePath)
+        fmt.Println(msg)
+        return fmt.Errorf("%v", msg)
+    }
 
     return nil
 }
 
 // Disable autoresponse for email
 func disableAutoresponse(email string) error {
-    //!!!
+    emailResponsePath := filepath.Join(RESPONSE_DIR, email)
+
+    if fileExists(emailResponsePath) {
+        disableEmailResponsePath := emailResponsePath + "_DISABLED"
+        os.Remove(disableEmailResponsePath)
+        err := os.Rename(emailResponsePath, disableEmailResponsePath)
+        if err != nil {
+            return err
+        }
+        msg := fmt.Sprintf("Disabled %v", emailResponsePath)
+        syslg.Info(msg)
+        fmt.Println(msg)
+    } else {
+        msg := fmt.Sprintf("%v does not exist, thus it cannot be disabled!", emailResponsePath)
+        fmt.Println(msg)
+        return fmt.Errorf("%v", msg)
+    }
 
     return nil
 }
 
 // Enable existing autoresponse for email
-func enableExAutoresponse(email string) error {
-    //!!!
+func enableExAutoresponse(email string, nostdout bool) error {
+    emailResponsePath := filepath.Join(RESPONSE_DIR, email)
+    disableEmailResponsePath := emailResponsePath + "_DISABLED"
+
+    if fileExists(disableEmailResponsePath) {
+        os.Remove(emailResponsePath)
+        err := os.Rename(disableEmailResponsePath, emailResponsePath)
+        if err != nil {
+            return err
+        }
+        msg := fmt.Sprintf("Enabled %v", emailResponsePath)
+        syslg.Info(msg)
+        fmt.Println(msg)
+    } else {
+        msg := fmt.Sprintf("%v does not exist, thus it cannot be enabled!", disableEmailResponsePath)
+        if ! nostdout {
+            fmt.Println(msg)
+        }
+        return fmt.Errorf("%v", msg)
+    }
 
     return nil
 }
@@ -219,6 +367,11 @@ func deleteAutoresponse(email string, nostdout bool) error {
             }
             return fmt.Errorf("%v", msg)
         }
+        msg := fmt.Sprintf("Delete %v done", deleteResponsePath)
+        if ! nostdout {
+            fmt.Println(msg)
+        }
+        syslg.Info(msg)
     } else {
         msg := fmt.Sprintf("%v does not exist, thus it cannot be deleted!", deleteResponsePath)
         if ! nostdout {
@@ -319,11 +472,11 @@ func main() {
     *senderPtr = strings.Replace(*senderPtr, "/", "", -1)
     recipientParts := strings.Split(*recipientPtr, "@")
     senderParts := strings.Split(*senderPtr, "@")
-    if len(recipientParts) < 2 {
+    if *recipientPtr != "" && len(recipientParts) < 2 {
         syslg.Err(fmt.Sprintf("Invalid recipient %v", *recipientPtr))
         os.Exit(1)
     }
-    if len(senderParts) < 2 {
+    if *senderPtr != "" && len(senderParts) < 2 {
         syslg.Err(fmt.Sprintf("Invalid sender %v", *senderPtr))
         os.Exit(1)
     }
@@ -343,7 +496,6 @@ func main() {
         }
 
         err := setAutoresponseViaEmail(*recipientPtr, *senderPtr, *saslUserPtr, *clientIpPtr)
-        //!!!
         if err != nil {
             syslg.Err(err.Error())
             os.Exit(1)
@@ -365,7 +517,6 @@ func main() {
         syslg.Info(fmt.Sprintf("Requested enable autoresponse for %v", *enableAutoResponsePtr))
 
         err := enableAutoresponse(*enableAutoResponsePtr)
-        //!!!
         if err != nil {
             syslg.Err(err.Error())
             os.Exit(1)
@@ -376,7 +527,6 @@ func main() {
         syslg.Info(fmt.Sprintf("Requested disable autoresponse for %v", *disableAutoResponsePtr))
 
         err := disableAutoresponse(*disableAutoResponsePtr)
-        //!!!
         if err != nil {
             syslg.Err(err.Error())
             os.Exit(1)
@@ -386,8 +536,7 @@ func main() {
     case mode == 1 && *enableExAutoResponsePtr != "":
         syslg.Info(fmt.Sprintf("Requested enable existing autoresponse for %v", *enableExAutoResponsePtr))
 
-        err := enableExAutoresponse(*enableExAutoResponsePtr)
-        //!!!
+        err := enableExAutoresponse(*enableExAutoResponsePtr, false)
         if err != nil {
             syslg.Err(err.Error())
             os.Exit(1)
@@ -398,11 +547,9 @@ func main() {
         syslg.Info(fmt.Sprintf("Requested delete autoresponse for %v", *deleteAutoResponsePtr))
 
         err := deleteAutoresponse(*deleteAutoResponsePtr, false)
-        //!!!
         if err != nil {
             syslg.Err(err.Error())
             os.Exit(1)
         }
     }
-    //!!!
 }
