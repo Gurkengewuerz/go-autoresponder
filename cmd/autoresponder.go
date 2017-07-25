@@ -115,6 +115,7 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
             // Send mail via sendmail
             sendMail(recipient, sender, func(sink io.WriteCloser) {
                 defer sink.Close()
+
                 sink.Write([]byte(fmt.Sprintf("From: %v\nTo: %v\nSubject: Autoresponder\n\n"+
                     "Autoresponse disabled for %v by SASL authenticated user: %v from: %v\n",
                     recipient, sender, sender, saslUser, clientIp)))
@@ -159,10 +160,14 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
                 }
 
                 switch true {
-                case strings.Index(strings.ToLower(line), "from: ") == 0:
+                case strings.Index(strings.ToLower(line), "from: ") == 0 ||
+                    strings.Index(strings.ToLower(line), "content-type: ") == 0 ||
+                    strings.Index(strings.ToLower(line), "mime-version: ") == 0:
                     _, err = writer.WriteString(line)
+
                 case strings.Index(strings.ToLower(line), "to: ") == 0:
                     _, err = writer.WriteString("To: THIS GETS REPLACED\n")
+
                 case strings.Index(strings.ToLower(line), "subject: ") == 0:
                     _, err = writer.WriteString("Subject: Autoresponder\n")
                 }
@@ -197,6 +202,7 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
 // Forward email using supplied arguments and stdin (email body)
 func forwardEmailAndAutoresponse(recipient, sender, saslUser, clientIp string, responseRate uint) error {
     recipientResponsePath := filepath.Join(RESPONSE_DIR, recipient)
+    recipientRateLog := filepath.Join(RATE_LOG_DIR, recipient)
     recipientSenderRateLog := filepath.Join(RATE_LOG_DIR, recipient, sender)
 
     if fileExists(recipientResponsePath) {
@@ -217,13 +223,69 @@ func forwardEmailAndAutoresponse(recipient, sender, saslUser, clientIp string, r
             }
         }
 
-        // If sendResponse is true, then send response and touch rate log file
-        if sendResponse {
+        // If sendResponse is true and sender and recipiend differ, then send response and touch rate log file
+        if sendResponse && strings.ToLower(recipient) != strings.ToLower(sender) {
             //fmt.Println("Sending response")
-            //!!!
+            fl, err := os.Open(recipientResponsePath)
+            if err != nil {
+                return err
+            }
+            defer fl.Close()
+            sendMail(recipient, sender, func(sink io.WriteCloser) {
+                defer sink.Close()
+
+                // Open recipientResponsePath file and do some replacements on the fly
+                reader := bufio.NewReader(fl)
+                state := 0
+                for {
+                    line, err := reader.ReadString('\n')
+                    if err != nil {
+                        if err == io.EOF {
+                            break
+                        }
+                        syslg.Err(err.Error())
+                        return
+                    }
+
+                    switch state {
+                    case 0:
+                        switch true {
+                        case line == "\n" || line == "\r\n" || line == "\r":
+                            state = 1
+
+                        case strings.Index(strings.ToLower(line), "from: ") == 0:
+                            line = fmt.Sprintf("From: %v\n", recipient)
+
+                        case strings.Index(strings.ToLower(line), "to: ") == 0:
+                            line = fmt.Sprintf("To: %v\n", sender)
+                        }
+                        fallthrough
+
+                    default:
+                        sink.Write([]byte(line))
+                    }
+                }
+            })
+            err = os.MkdirAll(recipientRateLog, 0770)
+            if err != nil {
+                return err
+            }
+            // Touch rate log file
+            fl, err = os.Create(recipientSenderRateLog)
+            if err != nil {
+                return err
+            }
+            fl.Close()
+            syslg.Info(fmt.Sprintf("Autoresponse sent from %v to %v", recipient, sender))
         }
     }
-    //!!!
+
+    // Now resend original mail
+    sendMail(sender, recipient, func(sink io.WriteCloser) {
+        defer sink.Close()
+
+        io.Copy(sink, os.Stdout)
+    })
 
     return nil
 }
@@ -385,7 +447,12 @@ func enableExAutoresponse(email string, nostdout bool) error {
 // Delete autoresponse for email
 func deleteAutoresponse(email string, nostdout bool) error {
     deleteResponsePath := filepath.Join(RESPONSE_DIR, email)
+    disabledDeleteResponsePath := deleteResponsePath + "_DISABLED"
+    recipientRateLog := filepath.Join(RATE_LOG_DIR, email)
+
     if fileExists(deleteResponsePath) {
+        os.Remove(disabledDeleteResponsePath)
+        os.RemoveAll(recipientRateLog)
         err := os.Remove(deleteResponsePath)
         if err != nil {
             msg := fmt.Sprintf("%v cannot be deleted: %v", deleteResponsePath, err)
@@ -529,7 +596,6 @@ func main() {
         syslg.Info(fmt.Sprintf("Requested email forward from %v, to %v", *senderPtr, *recipientPtr))
 
         err := forwardEmailAndAutoresponse(*recipientPtr, *senderPtr, *saslUserPtr, *clientIpPtr, *responseRatePtr)
-        //!!!
         if err != nil {
             syslg.Err(err.Error())
             os.Exit(1)
