@@ -499,7 +499,13 @@ func main() {
     deleteAutoResponsePtr := flag.String("D", "", "Delete autoresponse")
     instructionsPtr := flag.Bool("i", false, "Setup instructions")
     responseRatePtr := flag.Uint("t", 86400, "Response rate in seconds (0 - send each time)")
+    showVersion := flag.Bool("V", false, "Show version and exit")
     flag.Parse()
+
+    if *showVersion {
+        fmt.Printf("autoresponder %v, written by Uros Juvan <asmpro@gmail.com> 2017\n", VERSION)
+        os.Exit(0)
+    }
 
     DebugSyslogFmt("Flags:   Recipient: %v, Sender: %v, SASL authenticated username: %v, Client IP: %v, Enable autoresponse: %v, Disable autoresponse: %v, Enable existing autoresponse: %v, Delete autoresponse: %v, Setup instructions: %v, Response rate: %v",
         *recipientPtr,
