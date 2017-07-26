@@ -9,6 +9,8 @@ package main
 //
 // Copy autoresponder binary to /usr/local/sbin
 // cp autoresponder /usr/local/sbin/
+// chown autoresponder:autoresponder /usr/local/sbin/autoresponder
+// chmod 6755 /usr/local/sbin/autoresponder
 //
 // RESPONSE_DIR, RATE_LOG_DIR must be created:
 // mkdir -p /var/spool/autoresponder/log /var/spool/autoresponder/responses
@@ -42,7 +44,7 @@ import (
     "log/syslog"
 )
 
-const VERSION = "1.0.0004"
+const VERSION = "1.0.0005"
 const DEBUG = true
 
 const RESPONSE_DIR = "/var/spool/autoresponder/responses"
@@ -530,6 +532,8 @@ func main() {
 
  Copy autoresponder binary to /usr/local/sbin
  cp autoresponder /usr/local/sbin/
+ chown autoresponder:autoresponder /usr/local/sbin/autoresponder
+ chmod 6755 /usr/local/sbin/autoresponder
 
  RESPONSE_DIR, RATE_LOG_DIR must be created:
  mkdir -p /var/spool/autoresponder/log /var/spool/autoresponder/responses
