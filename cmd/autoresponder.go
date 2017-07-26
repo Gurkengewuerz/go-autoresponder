@@ -42,7 +42,7 @@ import (
     "log/syslog"
 )
 
-const VERSION = "1.0.0003"
+const VERSION = "1.0.0004"
 const DEBUG = true
 
 const RESPONSE_DIR = "/var/spool/autoresponder/responses"
@@ -570,14 +570,6 @@ func main() {
     *senderPtr = strings.Replace(*senderPtr, "/", "", -1)
     recipientParts := strings.Split(*recipientPtr, "@")
     senderParts := strings.Split(*senderPtr, "@")
-    if *recipientPtr != "" && len(recipientParts) < 2 {
-        syslg.Err(fmt.Sprintf("Invalid recipient %v", *recipientPtr))
-        os.Exit(1)
-    }
-    if *senderPtr != "" && len(senderParts) < 2 {
-        syslg.Err(fmt.Sprintf("Invalid sender %v", *senderPtr))
-        os.Exit(1)
-    }
 
     // And now descision making
     DebugSyslogFmt("recipientUser=%v =? senderUser=%v\n", recipientParts[0], senderParts[0] + "+autoresponse")
