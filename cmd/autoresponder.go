@@ -42,7 +42,7 @@ import (
     "log/syslog"
 )
 
-const VERSION = "1.0.0002"
+const VERSION = "1.0.0003"
 const DEBUG = true
 
 const RESPONSE_DIR = "/var/spool/autoresponder/responses"
@@ -162,6 +162,7 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
                 switch true {
                 case strings.Index(strings.ToLower(line), "from: ") == 0 ||
                     strings.Index(strings.ToLower(line), "content-type: ") == 0 ||
+                    strings.Index(strings.ToLower(line), "content-transfer-encoding: ") == 0 ||
                     strings.Index(strings.ToLower(line), "mime-version: ") == 0:
                     _, err = writer.WriteString(line)
 
