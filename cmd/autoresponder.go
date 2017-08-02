@@ -27,6 +27,10 @@ package main
 // autoresponder unix - n n - - pipe
 //   flags=Fq user=autoresponder argv=/usr/local/sbin/autoresponder -s ${sender} -r ${recipient} -S ${sasl_username} -C ${client_address}
 //
+// Set additional postfix parameter:
+// postconf -e 'autoresponder_destination_recipient_limit = 1'
+// service postfix restart
+//
 //
 // Written by Uros Juvan <asmpro@gmail.com> 2017
 
@@ -44,7 +48,7 @@ import (
     "log/syslog"
 )
 
-const VERSION = "1.0.0005"
+const VERSION = "1.0.0006"
 const DEBUG = true
 
 const RESPONSE_DIR = "/var/spool/autoresponder/responses"
@@ -549,6 +553,10 @@ func main() {
  At the end of file append the following two lines:
  autoresponder unix - n n - - pipe
    flags=Fq user=autoresponder argv=/usr/local/sbin/autoresponder -s ${sender} -r ${recipient} -S ${sasl_username} -C ${client_address}
+
+ Set additional postfix parameter:
+ postconf -e 'autoresponder_destination_recipient_limit = 1'
+ service postfix restart
 `)
         os.Exit(0)
     }
