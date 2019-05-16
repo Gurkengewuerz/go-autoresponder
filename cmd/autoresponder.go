@@ -48,7 +48,7 @@ import (
     "log/syslog"
 )
 
-const VERSION = "1.0.0006"
+const VERSION = "1.0.0008"
 const DEBUG = true
 
 const RESPONSE_DIR = "/var/spool/autoresponder/responses"
@@ -75,9 +75,19 @@ func DebugSyslogFmt(format string, v ...interface{})  {
 }
 
 // Return true if file exists and is regular file
-func fileExists(name string) bool {
+func isRegularFile(name string) bool {
     st, err := os.Lstat(name)
-    if err != nil || (st.Mode() & os.ModeType) != os.FileMode(0) {
+    if err != nil || ! st.Mode().IsRegular() {
+        return false
+    }
+
+    return true
+}
+
+// Return true if dir exists
+func isDir(name string) bool {
+    st, err := os.Lstat(name)
+    if err != nil || ! st.Mode().IsDir() {
         return false
     }
 
@@ -109,13 +119,13 @@ func sendMail(from, to string, populateStdin func(io.WriteCloser)) error {
 // Set autoresponse using supplied arguments and stdin (email body)
 func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error {
     senderResponsePath := filepath.Join(RESPONSE_DIR, sender)
-    if fileExists(senderResponsePath) {
+    if isRegularFile(senderResponsePath) {
         err := deleteAutoresponse(sender, true)
         if err != nil {
             return err
         }
 
-        if ! fileExists(senderResponsePath) {
+        if ! isRegularFile(senderResponsePath) {
             syslg.Info(fmt.Sprintf("Autoresponse disabled for address %v by SASL authenticated user: %v from: %v",
                 sender, saslUser, clientIp))
             // Send mail via sendmail
@@ -188,7 +198,7 @@ func setAutoresponseViaEmail(recipient, sender, saslUser, clientIp string) error
             }
         }
 
-        if fileExists(senderResponsePath) {
+        if isRegularFile(senderResponsePath) {
             syslg.Info(fmt.Sprintf("Autoresponse enabled for address %v by SASL authenticated user: %v from: %v",
                 sender, saslUser, clientIp))
             // Send mail via sendmail
@@ -212,10 +222,10 @@ func forwardEmailAndAutoresponse(recipient, sender, saslUser, clientIp string, r
     recipientRateLog := filepath.Join(RATE_LOG_DIR, recipient)
     recipientSenderRateLog := filepath.Join(RATE_LOG_DIR, recipient, sender)
 
-    if fileExists(recipientResponsePath) {
+    if isRegularFile(recipientResponsePath) {
         // Check rate log
         sendResponse := true
-        if fileExists(recipientSenderRateLog) {
+        if isRegularFile(recipientSenderRateLog) {
             curTime := time.Now()
             st, err := os.Stat(recipientSenderRateLog)
             if err != nil {
@@ -324,13 +334,13 @@ func enableAutoresponse(email string) error {
     editFilePath := emailResponsePath
 
     // If editFilePath does not exist, also try to enable previosly disabled autoresponse
-    if ! fileExists(editFilePath) {
+    if ! isRegularFile(editFilePath) {
         enableExAutoresponse(email, true)
     }
 
     // If file does not exist yet, create template file as tmp file
     var oldModTime, newModTime time.Time
-    if ! fileExists(editFilePath) {
+    if ! isRegularFile(editFilePath) {
         editFile, err := ioutil.TempFile("", "autoresponder")
         if err != nil {
             return err
@@ -408,7 +418,7 @@ mail body`, email))
 func disableAutoresponse(email string) error {
     emailResponsePath := filepath.Join(RESPONSE_DIR, email)
 
-    if fileExists(emailResponsePath) {
+    if isRegularFile(emailResponsePath) {
         disableEmailResponsePath := emailResponsePath + "_DISABLED"
         os.Remove(disableEmailResponsePath)
         err := os.Rename(emailResponsePath, disableEmailResponsePath)
@@ -432,7 +442,7 @@ func enableExAutoresponse(email string, nostdout bool) error {
     emailResponsePath := filepath.Join(RESPONSE_DIR, email)
     disableEmailResponsePath := emailResponsePath + "_DISABLED"
 
-    if fileExists(disableEmailResponsePath) {
+    if isRegularFile(disableEmailResponsePath) {
         os.Remove(emailResponsePath)
         err := os.Rename(disableEmailResponsePath, emailResponsePath)
         if err != nil {
@@ -458,7 +468,7 @@ func deleteAutoresponse(email string, nostdout bool) error {
     disabledDeleteResponsePath := deleteResponsePath + "_DISABLED"
     recipientRateLog := filepath.Join(RATE_LOG_DIR, email)
 
-    if fileExists(deleteResponsePath) {
+    if isRegularFile(deleteResponsePath) {
         os.Remove(disabledDeleteResponsePath)
         os.RemoveAll(recipientRateLog)
         err := os.Remove(deleteResponsePath)
@@ -510,7 +520,7 @@ func main() {
     flag.Parse()
 
     if *showVersion {
-        fmt.Printf("autoresponder %v, written by Uros Juvan <asmpro@gmail.com> 2017\n", VERSION)
+        fmt.Printf("autoresponder %v, written by Uros Juvan <asmpro@gmail.com> 2017-2019\n", VERSION)
         os.Exit(0)
     }
 
