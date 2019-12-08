@@ -1,0 +1,17 @@
+version = 0.1
+service_name = netire-autoresponse
+subject = Autoresponse/Abwesenheitsnotiz
+debug = false
+
+[path]
+response_dir = /var/spool/autoresponder/responses
+sendmail_bin = /usr/sbin/sendmail
+
+[mysql]
+host = sql.exmaple.com
+port = 3306
+username =
+password =
+database = vmail
+# use %u as a placeholder for the username and %d as the domain (username@domain.com) and %t for UTC Unix Time
+query = SELECT response FROM autoresponder LEFT JOIN account USING(account_id) LEFT JOIN domain USING(domain_id) WHERE username = '%u' AND domain = '%d' AND autoresponder.enabled = 1 AND ((efrom IS NULL AND eto IS NULL) OR (%t >= efrom AND %t <= eto))

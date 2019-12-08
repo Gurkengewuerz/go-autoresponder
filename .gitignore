@@ -1,3 +1,6 @@
 *~
 .*.swp
 cmd/autoresponder
+*.log
+config.ini
+.idea/
