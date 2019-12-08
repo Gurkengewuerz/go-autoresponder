@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"github.com/jedisct1/dlog"
 	"gopkg.in/ini.v1"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -138,7 +138,7 @@ Subject: %v
 X-Version: %v
 X-Service: %v
 
-%v`, *recipient, config.Section("").Key("query").String(), config.Section("").Key("version").String(), config.Section("").Key("service_name").String(), key.response), nil
+%v`, *recipient, config.Section("").Key("subject").String(), config.Section("").Key("version").String(), config.Section("").Key("service_name").String(), key.response), nil
 }
 
 // Forward email using supplied arguments and stdin (email body)
@@ -146,7 +146,7 @@ func forwardEmailAndAutoresponse(recipient string, sender string, responseRate u
 	recipientRateLog := filepath.Join(RESPONSE_DIR, recipient)
 	recipientSenderRateLog := filepath.Join(RESPONSE_DIR, recipient, sender)
 
-	response, err := getResponseMYSQL(&sender)
+	response, err := getResponseMYSQL(&recipient)
 	if err == nil {
 		// Check rate log
 		sendResponse := true
@@ -168,7 +168,7 @@ func forwardEmailAndAutoresponse(recipient string, sender string, responseRate u
 		// If sendResponse is true and sender and recipiend differ, then send response and touch rate log file
 		if sendResponse && strings.ToLower(recipient) != strings.ToLower(sender) {
 			dlog.Info("Sending Response")
-			response = strings.Replace(response, "To: THIS GETS REPLACED", fmt.Sprintf("To: %v", recipient), -1)
+			response = strings.Replace(response, "To: THIS GETS REPLACED", fmt.Sprintf("To: %v", sender), -1)
 
 			DebugFmtPrintf(response)
 
@@ -190,21 +190,20 @@ func forwardEmailAndAutoresponse(recipient string, sender string, responseRate u
 	}
 
 	// Now resend original mail
-
-	file := os.Stdin
-	fi, err := file.Stat()
+	fi, err := os.Stdin.Stat()
 	if err != nil {
-		return fmt.Errorf("file.Stat() error")
-	}
-	size := fi.Size()
-	if size <= 0 {
-		fmt.Println("Stdin is empty")
-		return fmt.Errorf("Stdin is empty")
+		log.Fatal(err)
 	}
 
-	reader := bufio.NewReader(file)
-	text, _ := reader.ReadString('\n')
-	err = sendMail(sender, recipient, text)
+	if fi.Mode()&os.ModeNamedPipe == 0 {
+		if fi.Size() == 0 {
+			fmt.Println("Stdin is empty")
+			return fmt.Errorf("Stdin is empty")
+		}
+	}
+
+	text, err := ioutil.ReadAll(os.Stdin)
+	err = sendMail(sender, recipient, string(text))
 	return nil
 }
 
