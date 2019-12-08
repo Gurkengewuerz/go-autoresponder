@@ -71,7 +71,7 @@ type responseSQL struct {
 	response string
 }
 
-func getResponseMYSQL(recipient *string) (string, error) {
+func getDB() (*sql.DB, error) {
 	db, err := sql.Open(
 		"mysql",
 		fmt.Sprintf(
@@ -81,6 +81,11 @@ func getResponseMYSQL(recipient *string) (string, error) {
 			config.Section("mysql").Key("host").String(),
 			config.Section("mysql").Key("port").String(),
 			config.Section("mysql").Key("database").String()))
+	return db, err
+}
+
+func getResponseMYSQL(recipient *string) (string, error) {
+	db, err := getDB()
 
 	if err != nil {
 		return "", err
@@ -151,7 +156,7 @@ func forwardEmailAndAutoresponse(recipient string, sender string, responseRate u
 		// If sendResponse is true and sender and recipiend differ, then send response and touch rate log file
 		if sendResponse && strings.ToLower(recipient) != strings.ToLower(sender) {
 			dlog.Info("Sending Response")
-			response = strings.Replace(response, "To: THIS GETS REPLACED", fmt.Sprintf("To: %v", sender), -1)
+			response = strings.Replace(response, "To: THIS GETS REPLACED", fmt.Sprintf("To: %v", recipient), -1)
 
 			DebugFmtPrintf(response)
 
@@ -197,6 +202,7 @@ func main() {
 	responseRatePtr := flag.Uint("t", 18000, "Response rate in seconds (0 - send each time)")
 	showVersion := flag.Bool("V", false, "Show version and exit")
 	configPath := flag.String("c", "./config.ini", "Show version and exit")
+	testDB := flag.Bool("D", false, "Test database")
 	flag.Parse()
 
 	cfg, err := ini.Load(*configPath)
@@ -212,6 +218,19 @@ func main() {
 
 	if DEBUG {
 		dlog.SetLogLevel(dlog.SeverityDebug)
+	}
+
+	if *testDB {
+		fmt.Printf("Trying to connect to database...\n")
+		db, err := getDB()
+		fmt.Printf("Opening connection...\n")
+		if err != nil {
+			fmt.Printf(err.Error())
+			os.Exit(1)
+		}
+		defer db.Close()
+		fmt.Printf("Connected to database!\n")
+		os.Exit(0)
 	}
 
 	if *showVersion {
