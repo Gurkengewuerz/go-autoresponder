@@ -1,13 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"flag"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jedisct1/dlog"
 	"gopkg.in/ini.v1"
-	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,23 +47,34 @@ func isRegularFile(name string) bool {
 }
 
 // Send mail from address to address with given mail content being passed as function pointer
-func sendMail(from, to string, populateStdin func(io.WriteCloser)) error {
+func sendMail(from, to string, msg string) error {
 	cmd := exec.Command(SENDMAIL_BIN, "-i", "-f", from, to)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
 	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
 	err = cmd.Start()
 	if err != nil {
 		return err
 	}
-	go func() {
-		populateStdin(stdin)
-	}()
+
+	stdin.Write([]byte(msg))
+	stdin.Close()
+
+	sentBytes, _ := ioutil.ReadAll(stdout)
 	err = cmd.Wait()
 	if err != nil {
 		return err
 	}
+
+	DebugSyslogFmt("Send Command Output\n")
+	DebugSyslogFmt(string(sentBytes))
 
 	return nil
 }
@@ -126,7 +138,7 @@ Subject: %v
 X-Version: %v
 X-Service: %v
 
-%v`, *recipient, config.Section("").Key("query"), config.Section("").Key("version"), config.Section("").Key("service_name"), key.response), nil
+%v`, *recipient, config.Section("").Key("query").String(), config.Section("").Key("version").String(), config.Section("").Key("service_name").String(), key.response), nil
 }
 
 // Forward email using supplied arguments and stdin (email body)
@@ -160,11 +172,7 @@ func forwardEmailAndAutoresponse(recipient string, sender string, responseRate u
 
 			DebugFmtPrintf(response)
 
-			sendMail(recipient, sender, func(sink io.WriteCloser) {
-				defer sink.Close()
-
-				io.Copy(sink, os.Stdin)
-			})
+			sendMail(recipient, sender, response)
 			err = os.MkdirAll(recipientRateLog, 0770)
 			if err != nil {
 				return err
@@ -182,12 +190,21 @@ func forwardEmailAndAutoresponse(recipient string, sender string, responseRate u
 	}
 
 	// Now resend original mail
-	sendMail(sender, recipient, func(sink io.WriteCloser) {
-		defer sink.Close()
 
-		io.Copy(sink, os.Stdin)
-	})
+	file := os.Stdin
+	fi, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("file.Stat() error")
+	}
+	size := fi.Size()
+	if size <= 0 {
+		fmt.Println("Stdin is empty")
+		return fmt.Errorf("Stdin is empty")
+	}
 
+	reader := bufio.NewReader(file)
+	text, _ := reader.ReadString('\n')
+	err = sendMail(sender, recipient, text)
 	return nil
 }
 
