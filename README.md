@@ -13,15 +13,21 @@ rewritten by [asmpro](https://github.com/asmpro/mailPostfixAutoresponder) and no
 
 ### Copy autoresponder binary to /usr/local/sbin
 
-    cp ~/gowork/bin/autoresponder /usr/local/sbin/
+    cp ~/gowork/bin/go-autoresponder /usr/local/sbin/autoresponder
     chown autoresponder:autoresponder /usr/local/sbin/autoresponder
     chmod 6755 /usr/local/sbin/autoresponder
 
 ### Create response_dir
 
-    mkdir -p/var/spool/autoresponder/responses
+    mkdir -p /var/spool/autoresponder/responses
+    cp ~/gowork/src/git.gurkengewuerz.de/Gurkengewuerz/go-autoresponder/config.ini.sample /var/spool/autoresponder/config.ini
     chown -R autoresponder:autoresponder /var/spool/autoresponder
     chmod -R 0770 /var/spool/autoresponder
+
+### Create Log Path
+
+    touch /var/log/autoresponder.log
+    chown autoresponder:autoresponder /var/log/autoresponder.log
 
 ### Edit /etc/postfix/master.cf
 Replace line:
@@ -36,7 +42,7 @@ with these two lines (second must begin with at least one space or tab):
 At the end of file append the following two lines:
 
     autoresponder unix - n n - - pipe
-      flags=Fq user=autoresponder argv=/usr/local/sbin/autoresponder -s ${sender} -r ${recipient} -c <REPLACE WITH CONFIG PATH> -logfile <PATH TO LOG>
+      flags=Fq user=autoresponder argv=/usr/local/sbin/autoresponder -s ${sender} -r ${recipient} -c /var/spool/autoresponder/config.ini -logfile /var/log/autoresponder.log
 
 ### Set additional postfix parameter
 
